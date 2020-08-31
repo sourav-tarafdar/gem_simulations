@@ -1,0 +1,46 @@
+#### Steps for running Garfiled++ @ ACCRE
+
+Important Link
+
+a ) https://garfieldpp.web.cern.ch/garfieldpp/
+
+
+1. Login to ACCRE account
+
+2. Load the following modules as per the commands below
+ $ module load GCC/6.4.0-2.28                                                                                                                             $ module load OpenMPI/2.1.1                                                                                                                              $ module load Pango/.1.41.0                                                                                                                              $ module load garfieldpp/2017.2-Python-2.7.14  
+
+3. Check whether the modules are loaded by issuing the following command
+ $ module list
+
+4. Save the above modules by a name of your choice as per the command below
+ $ module save <module_name>
+Note : Replace <module_name> by name of your choice
+
+5. Open your login file (for example .bashrc file) and add the following line 
+ module restore <module_name>
+
+6. Logout of ACCRE account and relogin and check whether modules are loaded properly or not by issuing command as in step 3. 
+
+7. Go to either singlegem or triplegem directory. Compile either of the code by issuing following command
+ $make
+
+Note : Every change in the source file (single_gem.C or triple_gem.C ) should be followed by the compilation of the code in order for the changes to take effect. 
+
+8. If the compilation is successful then one will get executable "single_gem" for "singlegem" code or "triple_gem" for "triplegem" code.
+
+9. For running interactively just issue the following commands
+  $ ./single_gem 1    [For single gem inside singlegem folder]
+  $ ./triple_gem 1    [For triple gem inside triplegem folder]
+
+One will get output ROOT file within OUTFILE folder 
+
+10. For running slurm job do the following
+Single gem example : $ cd singlegem/submission
+                     $ sbatch ../single_gem.slurm	
+
+Triple gem example : $ cd triplegem/submission
+                     $ sbatch ../triple_gem.slurm 
+  
+
+These will provide multiple ROOT files for each slurm job. One has to then merge these ROOT files for analysis purpose.

@@ -1,0 +1,459 @@
+#define UNUSED(expr) do { (void)(expr); } while (0)
+    #include <iostream>
+    #include <fstream>
+    #include <cmath>
+    #include <vector>
+    #include <stdlib.h>
+    #include <stdbool.h>
+    #include <chrono>
+    #include <stdio.h>
+    #include <TCanvas.h>
+    #include <TROOT.h>
+    #include <TApplication.h>
+    #include <TNtuple.h>
+    #include <TH1F.h>
+    #include <algorithm>
+    #include <TH2F.h>
+    #include <TBuffer3D.h>
+    #include <TBuffer3DTypes.h>
+    #include <TVirtualViewer3D.h>
+    #include <TFile.h>
+    #include "MediumMagboltz.hh"
+    #include "ComponentAnsys123.hh"
+    #include "Sensor.hh"
+    #include "AvalancheMicroscopic.hh"
+    #include "AvalancheMC.hh"
+    #include "ViewGeometry.hh"
+    #include "Plotting.hh"
+    #include "ViewField.hh"
+    #include "ViewSignal.hh"
+    #include "Random.hh"
+    #include <TChain.h>
+    #include "TObjArray.h"
+    #include <time.h>
+
+    #ifdef __MAKECINT__
+    #pragma link C++ class vector<float>+;
+    #endif
+
+    using namespace Garfield;
+    using namespace std;
+    using namespace std::chrono;
+
+    auto start = high_resolution_clock::now();
+    /* Tree to store variables produced by Garfield++
+     */
+    int main(int argc, char * argv[]) {
+      UNUSED(argc);
+
+      //TApplication app("app", &argc, argv);
+      //plottingEngine.SetDefaultStyle();
+      
+      //ANSYS geometry variables
+      Float_t kapton = 0.0050;   //Thickness of the kapton layer, in cm
+      Float_t metal =  0.0005;   // Thickness of the meta layers, in cm
+      Float_t drift_gap = 0.3;
+      Float_t transfer_gap = 0.2;
+      Float_t induction_gap = 0.1;
+      Float_t mesh =   kapton/2+metal+ transfer_gap + kapton+2.*metal + drift_gap;    //Coordinate of drift electrode/cathode along Z  in cm
+      Float_t pad = -1.0*( kapton/2+metal+ transfer_gap + kapton+2.*metal + induction_gap );    // Coordinate of readout pad/ anode along Z in cm
+      
+      //Float_t drift_gap = drift-metal-kapton/2 // drift gap in cm
+      //Float_t induction_gap =-1.0* (induct + metal + kapton/2) //induction gap in cm
+      
+      //Field applied in different regions (V/cm) and potential difference (V) across each surface of a gem
+      Float_t induction_field =  2000.;
+      Float_t transfer_field =  2000.;
+      Float_t dv_gem =  350;
+      // Define variables.
+      Double_t xi,yi,zi,ei,ti;
+      Int_t nele,nelend;
+      
+      
+      /*
+      double bfield = 0.0; // Magnetic field
+      if (argv[4]) {
+        bfield = (atof(argv[4]))/10.0;
+        if (bfield < 0.0) bfield = 0.0;
+      }
+      double ang = 0.0; // Angle between E&B fields
+      if (argv[5]) {
+        ang = atof(argv[5]);
+        if (ang<0.0 || ang>180.0) ang = 0.0;
+      }
+      */
+      int nevents = 1 ; // Number of events.
+      /*
+      if (argv[6]) {
+        nevents = atoi(argv[6]);
+        if (nevents<1) nevents = 1000;
+      }
+      */
+      if (nevents<1) nevents=1000;
+
+      TString etreeName, itreeName;
+      Double_t x0,y0,z0,e0,t0;
+      std::vector <float> x1,y1,z1, e1, t1;
+      std::vector <float> x2,y2,z2, e2, t2;
+      
+      std::vector <float> ixf,iyf,izf,itf;
+      std::vector <float> ixi,iyi,izi,iti;
+      std::vector <float> stat;
+      std::vector <float> es, is;
+     
+      Int_t entries, event;
+      Double_t gain;
+      Int_t ntotalend = 0;
+     
+      TString filename;
+      filename = Form("OUTFILE/triplegem_gemout_%s.root", argv[1]);
+      
+       TFile *treefile = new TFile(filename, "RECREATE");
+       treefile->cd();
+       
+      
+      etreeName = "etree";
+      TTree *etree = new TTree(etreeName,"e- variables");
+      cout << "Will write to File output ROOT file " << endl;
+
+      // electron tree
+      etree->Branch("entries",&entries,"entries/I");
+      etree->Branch("event",&event,"event/I");
+      etree->Branch("gain",&gain,"gain/D");
+      etree->Branch("nele",&nele,"nele/I");
+      etree->Branch("nelend",&nelend,"nelend/I");
+      etree->Branch("ntotalend",&ntotalend, "ntotalend/I");
+      
+      etree->Branch("ez0",&z0, "ez0/D");
+      etree->Branch("ex0",&x0, "ex0/D");
+      etree->Branch("ey0",&y0, "ey0/D");
+      etree->Branch("ee0",&e0, "ee0/D");
+      etree->Branch("et0",&t0, "et0/D");
+     
+     
+      etree->Branch("status",&stat);
+      
+      etree->Branch("ex1",&x1);
+      etree->Branch("ey1",&y1);
+      etree->Branch("ee1",&e1);
+      etree->Branch("et1",&t1);
+      etree->Branch("ez1",&z1);
+      
+      etree->Branch("ex2",&x2);
+      etree->Branch("ey2",&y2);
+      etree->Branch("ee2",&e2);
+      etree->Branch("et2",&t2);
+      etree->Branch("ez2",&z2);
+     
+      //Ion tree
+      itreeName = "itree";
+      TTree *itree = new TTree(itreeName,"ions variables");
+      
+      itree->Branch("entries",&entries,"entries/I");
+      itree->Branch("event",&event,"event/I");
+      itree->Branch("ixi",&ixi);
+      itree->Branch("iyi",&iyi);
+      itree->Branch("iti",&iti);
+      itree->Branch("izi",&izi);
+      itree->Branch("ixf",&ixf);
+      itree->Branch("iyf",&iyf);
+      itree->Branch("itf",&itf);
+      itree->Branch("izf",&izf);
+     
+      //Gain histogram
+      TH1D *h_gain = new TH1D("h_gain","",50, -0.1, 49.9);
+        
+      // Loading the Ansys files (weighting afterwards)
+      ComponentAnsys123* gem = new ComponentAnsys123();
+      
+      gem->Initialise("ANSYS_geo/ELIST_tripgem_course.lis",		  "ANSYS_geo/NLIST_tripgem_course.lis",		  "ANSYS_geo/MPLIST_tripgem_course.lis",                  "ANSYS_geo/PRNSOL_tripgem_course.lis", "mm");
+      gem->EnableMirrorPeriodicityX();
+      gem->EnableMirrorPeriodicityY();
+      gem->PrintRange();
+      
+    //=========================================================
+      // Create histograms for aspect ratio and element size by retrieving the dimesions of each mesh elemennt. This will enable us to know about the quality of the mesh
+      //=======================================================
+     
+      /*
+      cout<<bfield<<endl;
+      double by=(bfield)*sin(ang*(22.0/7.0)/180.0);
+      double bz=(bfield)*cos(ang*(22.0/7.0)/180.0);
+      cout<<by<<" "<<bz<<endl;
+      gem->SetMagneticField(0,by,bz);
+      */
+      TCanvas* cp1 = new TCanvas("cp1", "", 600, 600);
+      TCanvas* cp2 = new TCanvas("cp2", "", 600, 600);
+      TCanvas* cf1 = new TCanvas("cf1", "", 600, 600);
+      TCanvas* cf2 = new TCanvas("cf2", "", 600, 600);
+      TCanvas* cf3 = new TCanvas("cf3", "", 600, 600);
+      const double pitch=0.014; // in cm
+      const bool plotField =true;
+      if (plotField) {
+        ViewField* fieldView = new ViewField();
+        fieldView->SetComponent(gem);
+        // Plot the potential along the hole axis.
+        //TCanvas* cp = new TCanvas("cp", "", 600, 600);
+        cp1->SetLeftMargin(0.16);
+        fieldView->SetCanvas(cp1);
+        fieldView->PlotProfile(0., 0., 0.02, 0., 0., -0.02);
+	
+	//Calculate bottom gem spatial coordinate in Z (offset by few mm) and voltages applied
+	Float_t g3_t =  -1.0*(kapton/2 + metal + transfer_gap - 0.02);// 3rd gem top surface z coordinate offset by -0.3 mm 
+	Float_t g3_b =-1.0*(kapton/2 + metal + transfer_gap + metal + kapton + metal +  0.02);// 3rd gem bottom surface z coordinate offset by 0.3 mm 
+	Float_t g3_b_v = -1.0*(induction_field*induction_gap-50); // 3rd  gem bottom surface voltage offset by 50 V
+	Float_t g3_t_v =  g3_b_v - dv_gem -50 ;
+	cout << " g3b :" << g3_b << " "  << g3_b_v  << endl;
+	cout << " g3t :" << g3_t << " " << g3_t_v << endl;
+	//Calculate 2nd gem spatial coordinate in Z (offset by few mm) and voltages applied                                                           
+        Float_t g2_t =  (kapton/2 + metal  + 0.02);// 2nd  gem top surface z coordinate offset by 0.3 mm                              
+        Float_t g2_b =-1.0*(kapton/2 + metal+ 0.02);// 2nd gem bottom surface z coordinate offset by 0.3 mm    
+        Float_t g2_b_v = -1.0*(transfer_field*transfer_gap)+ g3_t_v; // 2nd  gem bottom surface voltage offset by 50 V                  
+	Float_t g2_t_v =  g2_b_v - dv_gem -50;
+	cout <<" g2b :" << g2_b << " " << g2_b_v  << endl;
+	cout <<" g2t :" << g2_t << " " << g2_t_v << endl;
+
+	//Calculate top gem spatial coordinate in Z (offset by few mm) and voltages applied
+	Float_t g1_b = kapton/2. + metal + transfer_gap - 0.02; // Top gem bottom surface z coordinate offset by -0.3 mm
+	Float_t g1_t = kapton/2. + metal + transfer_gap + kapton + 2.*metal + 0.02 ; // Top gem top offset by +0.3 mm
+	Float_t g1_b_v = -1.0*(transfer_field*transfer_gap) + g2_t_v;
+	Float_t g1_t_v = g1_b_v - dv_gem -50;
+	cout <<" g1b :" << g1_b << " " << g1_b_v  << endl;
+	cout <<" g1t :" << g1_t << " " << g1_t_v << endl;
+
+        // Set the viewing plane (normal vector) and ranges
+        fieldView->SetPlane(0., -1., 0., 0., 0., 0.);
+        //fieldView->SetArea(-pitch / 2., -0.02, pitch / 2., 0.02);
+        fieldView->SetArea(-pitch/2., g1_b, pitch/2. , g1_t);
+        fieldView->SetVoltageRange(g1_t_v, g1_b_v); // gem example
+        //TCanvas* cf = new TCanvas("cf", "", 600, 600);
+        cf1->SetLeftMargin(0.16);
+        fieldView->SetCanvas(cf1);
+        fieldView->PlotContour();
+
+        ViewField* fieldView2 = new ViewField();
+        fieldView2->SetComponent(gem);
+        // Plot the potential along the hole axis.
+        cp2->SetLeftMargin(0.16);
+        fieldView2->SetCanvas(cp2);
+        fieldView2->PlotProfile(0., 0., 0.15, 0., 0., -0.15);
+        
+        // Set the viewing plane (normal vector) and ranges
+        fieldView2->SetPlane(0., -1., 0., 0., 0., 0.);
+        fieldView2->SetArea(-pitch / 2., g2_b, pitch / 2., g2_t);
+        //fieldView2->SetArea(-5.*pitch, -0.11, 5*pitch , 0.1);
+        fieldView2->SetVoltageRange(g2_t_v, g2_b_v);
+        //TCanvas* cf = new TCanvas("cf", "", 600, 600);
+        cf2->SetLeftMargin(0.16);
+        fieldView2->SetCanvas(cf2);
+        fieldView2->PlotContour();
+
+	ViewField* fieldView3 = new ViewField();
+        fieldView3->SetComponent(gem);
+	fieldView3->SetPlane(0., -1., 0., 0., 0., 0.);
+        fieldView3->SetArea(-pitch / 2., g3_b, pitch / 2., g3_t);
+        //fieldView2->SetArea(-5.*pitch, -0.11, 5*pitch , 0.1);                                                                                           
+        fieldView3->SetVoltageRange(g3_t_v, g3_b_v);
+        //TCanvas* cf = new TCanvas("cf", "", 600, 600);                                                                                                  
+        cf3->SetLeftMargin(0.16);
+        fieldView3->SetCanvas(cf2);
+        fieldView3->PlotContour();
+
+      }
+
+      //Gas setup
+      MediumMagboltz* gas=new MediumMagboltz();
+      gas->SetComposition("ar",70.,"co2",30.);
+      // gas->SetComposition("ar",45.,"co2",15.,"cf4",40.0);
+      // gas->SetComposition("ar",80.,"cf4",20.);
+      // gas->SetComposition("cf4",100.);
+      // gas->SetComposition("ar",95.,"ch4",5.)
+      gas->SetTemperature(293.5);
+      gas->SetPressure(760.0);
+      // gas->SetMaxElectronEnergy(200.);
+      // gas->EnablePenningTransfer(0.51, 0.0, "Ne");
+      gas->EnablePenningTransfer(0.46, 0.0, "ar");
+      gas->Initialise(true);
+      // gas->Initialise();
+      int numofmat=gem->GetNumberOfMaterials();
+      //cout << "Number of materials: " << numofmat << endl;
+
+      //const std::string path = getenv("GARFIELD_HOME");
+       gas->LoadIonMobility("Ion_Data/IonMobility_Ar+_Ar.txt");
+      
+      for(int i=0;i<numofmat;i++){
+        const double eps = gem->GetPermittivity(i);
+        cout<<"The permittivity of material "<<i<<" is "<< eps<<endl;
+        if(fabs(eps-1)<1.e-13){gem->SetMedium(i,gas);}
+        //if (eps == 1.) gem->SetMedium(i, gas);
+      }
+      
+
+      
+      Sensor* sensor = new Sensor();
+      sensor->AddComponent(gem);
+      
+      /*
+      sensor->SetArea(-5 * pitch, -5 * pitch, -0.02,
+              5 * pitch,  5 * pitch,   0.02  );
+      */
+      
+      AvalancheMicroscopic* aval = new AvalancheMicroscopic();
+      aval->SetSensor(sensor);
+     
+      //Set the ion transport
+      AvalancheMC* drift = new AvalancheMC();
+      drift->SetSensor(sensor);
+      drift->SetDistanceSteps(2.e-4);
+    
+      // aval->EnableDebugging();
+      //aval->EnableMagneticField();
+      // aval->EnableAvalancheSizeLimit(1000);
+      // Loop over primary electrons
+      //const double smear=pitch/2;
+      entries = 0;
+      for(int i=0; i <nevents; i++) {
+     
+        event = i;
+        x1.clear(); x2.clear();
+        y1.clear(); y2.clear();
+        z1.clear(); z2.clear();
+        e1.clear(); e2.clear();
+        t1.clear(); t2.clear();
+       
+        ixi.clear(); iyi.clear(); izi.clear();
+        ixf.clear(); iyf.clear(); izf.clear();
+        iti.clear();
+        itf.clear();
+      
+        
+        const double smear = pitch/2;
+        xi = -smear + RndmUniform() * pitch;
+        yi = -smear + RndmUniform() * pitch;
+        zi = mesh - 0.05 ;
+        cout << "zi :" << zi << endl;
+        ei = 1.0;
+        ti = 0.0;
+        double dx0 = 0.0; double dy0 = 0.0; double dz0 = 0.0;
+       
+        x0 = xi;
+        y0 = yi;
+        z0 = zi;
+        e0 = ei;
+        t0 = ti;
+        
+        
+        float timeused = (float)clock()/CLOCKS_PER_SEC;
+        if (timeused > 25000000.0) {
+          cout << "Time limit reached, " << timeused << " sec" << endl;
+          break;
+        }
+        //Start e- avalanche
+        aval->AvalancheElectron(xi,yi,zi,ti,ei,dx0,dy0,dz0);
+        int ne,ni;
+        //Get # of e-s and ions produced in avalanche
+        aval->GetAvalancheSize(ne,ni);
+        nele = ne;
+       
+        
+        //Get the history of each avalanche e- (starting and end point of avalanche e-)
+        
+        double xa0, ya0, za0, ea0, ta0;
+        double xa1, ya1, za1, ea1, ta1;
+        double xi1,yi1,zi1,ti1;
+        double xi2,yi2,zi2,ti2;
+        int istat;
+        nelend = aval->GetNumberOfElectronEndpoints();
+        cout << "nelend :" << nelend << endl;
+        
+        //entries ++;
+        Int_t e_anode = 0 ;
+        for (int j= 0 ; j < nelend; j++) {
+        
+          aval->GetElectronEndpoint(j,xa0,ya0,za0,ta0,ea0,xa1,ya1,za1,ta1,ea1,istat);
+          //Store starting point of avalanche e-s and primaries
+          x1.push_back(xa0);
+          y1.push_back(ya0);
+          z1.push_back(za0);
+          t1.push_back(ta0);
+          e1.push_back(ea0);
+        
+          //Store end point of avalanche e-s and primaries
+          x2.push_back(xa1);
+          y2.push_back(ya1);
+          z2.push_back(za1);
+          t2.push_back(ta1);
+          e2.push_back(ea1);
+          //status of avalanche e-
+          stat.push_back(istat);
+          
+
+          drift->DriftIon(xa0,ya0,za0,ta0);
+          drift->GetIonEndpoint(0,xi1,yi1,zi1,ti1,xi2,yi2,zi2,ti2,istat);
+          ixi.push_back(xi1);
+          iyi.push_back(yi1);
+          izi.push_back(zi1);
+          iti.push_back(ti1);
+          ixf.push_back(xi2);
+          iyf.push_back(yi2);
+          izf.push_back(zi2);
+          itf.push_back(ti2);
+
+          
+          
+          ntotalend++       ;
+	  if(za1 < -1.0*( kapton/2+metal+ transfer_gap + kapton+2.*metal + 0.04 ) )e_anode++ ; // 0.04 cm added to make sure that we are not counting electrons stuck at bottom of GEM
+         
+        }// e- loop
+        if(e_anode != 0) {
+          h_gain->Fill(e_anode);
+          
+        }
+        gain = e_anode;
+        cout << " e-  in anode " << e_anode << endl;
+        
+        
+        
+        etree->Fill();
+        itree->Fill();
+       
+        entries++;
+      }//event loop end
+
+       //sensor->ClearSignal();
+       
+         
+      auto stop = high_resolution_clock::now();
+      auto duration = duration_cast<minutes>(stop-start);
+      cout << "Time taken: " << duration.count() << " minutes" << '\n';
+        
+      //tree->Fill();
+      cout << ntotalend << endl;
+     
+      // Write out the Tree File
+      treefile->cd();
+      etree->Write();
+      itree->Write();
+      //sigtree->Write();
+      cp1->Write();
+      cf1->Write();
+      cp2->Write();
+      cf2->Write();
+      cf3->Write();
+      
+      h_gain->Write();
+      
+     
+      treefile->Close();
+      
+       delete gas;
+       delete sensor;
+       delete aval;
+       delete gem;
+       
+
+       return 0;
+       
+       //app.Run(kTRUE);
+      
+    }
