@@ -1,0 +1,112 @@
+FINISH
+/CLEAR,START
+/PREP7
+
+! Set electric preferences
+KEYW,PR_ELMAG,1
+KEYW,MAGELC,1
+
+! Select element
+ET,1,SOLID123
+
+! Material properties
+MP,PERX,1,1e10  ! Nickel
+MP,RSVX,1,0.0   !
+MP,PERX,2,1.0   ! Gas
+
+! Construct MicroMEGA
+dia = 0.008     ! diameter of nickel wire, mm
+length = 0.050  ! length of wire, mm
+drift_gap = 1.0 ! drift gap , mm
+drift = drift_gap+dia/2   ! z coordinate of drift electrode, mm
+induct_gap = 0.129 ! amplification gap in mm
+induct = -1.0*induct_gap - dia/2   ! z coordinate of read-out, mm
+pitch = 0.025 ! mm 
+
+! Define gaps
+!drift_gap = drift-dia/2   ! drift gap, mm
+!induct_gap = -1.0*induct+dia/2 ! induction gap, mm
+
+! Define field (V/mm) and voltages (V) on electrodes
+ed = 100.0
+ei = 6000.0
+anode_v = 0.0
+mesh = anode_v-induct_gap*ei
+cathode_v = -1*ed*drift_gap+mesh
+
+!Mesh wires
+WPOFFS, 0, length/2, 0 ! Move the WP along Y axis so that center of hole is at (x,y)= (0,0)
+WPROTA, 0, 90, 0  ! Rotate the WP so that WP z axis alings with GC y axis
+CYL4,   pitch/2,   0,   dia/2,   0,, 360,   length
+CYL4,  -pitch/2,   0,   dia/2,   0,, 360,   length
+
+WPOFFS, length/2, 0, 0 ! Move WP along +ve X
+WPROTA, 0,        90,   90 ! Rotate WP Z to allign with GC X  axis
+CYL4,   0,   pitch/2.,   dia/2,   0,, 360,   -length
+WPOFFS, 0,length, 0
+CYL4,   0,  -pitch/2.,   dia/2,   0,, 360,   -length
+
+!Rotating WP along GC axes and moving to the GC axes
+WPROTA, 0, 0, -90
+WPROTA, 0, 180, 0
+WPOFFS, -length/2, length/2, 0
+
+!Create gas volume
+BLOCK, -length/2, length/2, -length/2, length/2, induct, drift
+
+VADD, 1, 2, 3, 4  ! Creates volume 6, frees up 1-4
+! Subtract wire volume from gas volume
+VSBV, 5, 6, , , KEEP !5 -> 1
+VGLUE, ALL
+/COLOR, VOLU, RED, 6
+!/COLOR, VOLU, LGRA, 5
+/COLOR, VOLU, LGRA, 1
+VSEL, S,,,6
+VATT, 1,,1
+!VSEL, S,,,5
+VSEL, S,,,1
+VATT, 2,,1
+! Voltage boundaries on the drift and induction plane
+ASEL, S, LOC, Z, drift
+DA, ALL, VOLT, cathode_v
+ASEL, S, LOC, Z, induct
+DA, ALL, VOLT, anode_v
+! Voltage boundary on mesh
+VSEL, S, , , 6
+ASLV, S
+DA, ALL, VOLT, mesh
+
+VSEL, S,,, 1, 6
+ASLV, S
+MSHKEY,0
+SMRT, 1
+VSEL,S,,,1
+!VSEL,A,,,6
+VMESH,ALL
+
+/SOLU
+SOLVE
+FINISH
+! Display solution
+/POST1
+/EFACET, 1
+PLNSOL, VOLT, , 0
+/show,x11c,,,8
+/contour,,200,auto
+
+! Write solution to files
+/OUTPUT, PRNSOL_cylmmg_gasmesh_ind6kvpmm_wpgcallign, lis
+PRNSOL
+/OUTPUT
+
+/OUTPUT, NLIST_cylmmg_gasmesh_ind6kvpmm_wpgcallign, lis
+NLIST
+/OUTPUT
+
+/OUTPUT, ELIST_cylmmg_gasmesh_ind6kvpmm_wpgcallign, lis
+ELIST
+/OUTPUT
+
+/OUTPUT, MPLIST_cylmmg_gasmesh_ind6kvpmm_wpgcallign, lis
+MPLIST
+/OUTPUT
